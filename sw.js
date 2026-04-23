@@ -1,9 +1,11 @@
-const CACHE_NAME = 'baki-tracker-v2';
+const CACHE_NAME = 'baki-tracker-v3';
 const urlsToCache = [
   './',
   './index.html',
   './app.js',
   './manifest.json',
+  './icon-192x192.svg',
+  './icon-512x512.svg',
   'https://cdn.tailwindcss.com',
   'https://code.jquery.com/jquery-3.7.1.min.js',
   'https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js'
