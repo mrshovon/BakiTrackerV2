@@ -271,7 +271,7 @@ $('#addShopForm').on('submit', function(e) {
       isDeleted: false
     };
     
-    database.ref('users/' + currentUsername + '/shops/' + shopId).set(shop).then(function() {
+    database.ref('users/' + sanitizeUsername(currentUsername) + '/shops/' + shopId).set(shop).then(function() {
       $('#addShopModal').addClass('hidden');
       $('#shopNameInput').val('');
       loadShops();
@@ -285,7 +285,7 @@ $('#addShopForm').on('submit', function(e) {
 
 // Load shops
 function loadShops() {
-  database.ref('users/' + currentUsername + '/shops').once('value').then(function(snapshot) {
+  database.ref('users/' + sanitizeUsername(currentUsername) + '/shops').once('value').then(function(snapshot) {
     const shops = [];
     snapshot.forEach(function(childSnapshot) {
       const shop = childSnapshot.val();
@@ -370,16 +370,16 @@ function renderShops(shops) {
 
 // Soft delete shop and its transactions
 function softDeleteShop(shopId) {
-  database.ref('users/' + currentUsername + '/shops/' + shopId + '/isDeleted').set(true).then(function() {
+  database.ref('users/' + sanitizeUsername(currentUsername) + '/shops/' + shopId + '/isDeleted').set(true).then(function() {
     // Soft delete all transactions for this shop
-    return database.ref('users/' + currentUsername + '/transactions').once('value');
+    return database.ref('users/' + sanitizeUsername(currentUsername) + '/transactions').once('value');
   }).then(function(snapshot) {
     const deletePromises = [];
     snapshot.forEach(function(childSnapshot) {
       const txn = childSnapshot.val();
       if (txn.shopId === shopId) {
         deletePromises.push(
-          database.ref('users/' + currentUsername + '/transactions/' + childSnapshot.key + '/isDeleted').set(true)
+          database.ref('users/' + sanitizeUsername(currentUsername) + '/transactions/' + childSnapshot.key + '/isDeleted').set(true)
         );
       }
     });
@@ -395,7 +395,7 @@ function softDeleteShop(shopId) {
 
 // Get shop balance
 function getShopBalance(shopId) {
-  return database.ref('users/' + currentUsername + '/transactions').once('value').then(function(snapshot) {
+  return database.ref('users/' + sanitizeUsername(currentUsername) + '/transactions').once('value').then(function(snapshot) {
     let balance = 0;
     snapshot.forEach(function(childSnapshot) {
       const txn = childSnapshot.val();
@@ -450,7 +450,7 @@ $('#backBtn').on('click', function() {
 
 // Load transactions
 function loadTransactions(shopId) {
-  database.ref('users/' + currentUsername + '/transactions').once('value').then(function(snapshot) {
+  database.ref('users/' + sanitizeUsername(currentUsername) + '/transactions').once('value').then(function(snapshot) {
     const transactions = [];
     snapshot.forEach(function(childSnapshot) {
       const txn = childSnapshot.val();
@@ -532,7 +532,7 @@ function renderTransactions(transactions) {
   $('.delete-txn').on('click', function() {
     const txnId = $(this).data('id');
     if (confirm('Are you sure you want to delete this transaction?')) {
-      database.ref('users/' + currentUsername + '/transactions/' + txnId + '/isDeleted').set(true).then(function() {
+      database.ref('users/' + sanitizeUsername(currentUsername) + '/transactions/' + txnId + '/isDeleted').set(true).then(function() {
         loadTransactions(currentShopId);
       }).catch(function(err) {
         console.error('Error deleting transaction:', err);
@@ -592,7 +592,7 @@ $('#addTransactionForm').on('submit', function(e) {
       transaction.note = note;
     }
     
-    database.ref('users/' + currentUsername + '/transactions/' + txnId).set(transaction).then(function() {
+    database.ref('users/' + sanitizeUsername(currentUsername) + '/transactions/' + txnId).set(transaction).then(function() {
       $('#addTransactionModal').addClass('hidden');
       $('#amount').val('');
       $('#note').val('');
