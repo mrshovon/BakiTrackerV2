@@ -444,10 +444,13 @@ $('#addTransactionForm').on('submit', function(e) {
       shopName: $('#shopName').text(),
       amount: amount,
       type: transactionType,
-      note: note || undefined,
       timestamp: new Date().toISOString(),
       isDeleted: false
     };
+    
+    if (note) {
+      transaction.note = note;
+    }
     
     database.ref('users/' + currentUsername + '/transactions/' + txnId).set(transaction).then(function() {
       $('#addTransactionModal').addClass('hidden');
@@ -464,24 +467,24 @@ $('#addTransactionForm').on('submit', function(e) {
 
 // Test notification function - sends notification every 2 minutes
 // Comment out this block to disable test notifications
-function sendTestNotification() {
-  if ('Notification' in window) {
-    if (Notification.permission === 'granted') {
-      new Notification('Baki Tracker Test', {
-        body: 'Test notification - PWA is working!',
-        icon: 'icon-192x192.svg',
-        badge: 'icon-192x192.svg'
-      });
-      console.log('Test notification sent at:', new Date().toLocaleTimeString());
-    } else if (Notification.permission !== 'denied') {
-      Notification.requestPermission().then(function(permission) {
-        if (permission === 'granted') {
-          sendTestNotification();
-        }
-      });
-    }
-  }
-}
+// function sendTestNotification() {
+//   if ('Notification' in window) {
+//     if (Notification.permission === 'granted') {
+//       new Notification('Baki Tracker Test', {
+//         body: 'Test notification - PWA is working!',
+//         icon: 'icon-192x192.svg',
+//         badge: 'icon-192x192.svg'
+//       });
+//       console.log('Test notification sent at:', new Date().toLocaleTimeString());
+//     } else if (Notification.permission !== 'denied') {
+//       Notification.requestPermission().then(function(permission) {
+//         if (permission === 'granted') {
+//           sendTestNotification();
+//         }
+//       });
+//     }
+//   }
+// }
 
 // Send test notification every 2 minutes (120000 ms)
 // Comment out the line below to stop test notifications
