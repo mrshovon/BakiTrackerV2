@@ -182,6 +182,68 @@ $('#addShopBtn').on('click', function() {
   $('#addShopModal').removeClass('hidden');
 });
 
+// Change Password Modal
+$('#changePasswordBtn').on('click', function() {
+  $('#changePasswordModal').removeClass('hidden');
+});
+
+$('#closeChangePasswordModal, #cancelChangePasswordBtn').on('click', function() {
+  $('#changePasswordModal').addClass('hidden');
+  $('#currentPassword').val('');
+  $('#newPassword').val('');
+  $('#confirmPassword').val('');
+});
+
+// Change Password form submission
+$('#changePasswordForm').on('submit', async function(e) {
+  e.preventDefault();
+  const currentPassword = $('#currentPassword').val();
+  const newPassword = $('#newPassword').val();
+  const confirmPassword = $('#confirmPassword').val();
+  
+  if (newPassword !== confirmPassword) {
+    showToast('New passwords do not match', 'error');
+    return;
+  }
+  
+  if (newPassword === currentPassword) {
+    showToast('New password must be different from current password', 'error');
+    return;
+  }
+  
+  // Verify current password
+  database.ref('usernames/' + currentUsername).once('value').then(function(snapshot) {
+    if (!snapshot.exists()) {
+      showToast('User not found', 'error');
+      return null;
+    }
+    
+    const userData = snapshot.val();
+    return hashPassword(currentPassword).then(function(currentPasswordHash) {
+      if (currentPasswordHash !== userData.passwordHash) {
+        showToast('Current password is incorrect', 'error');
+        return null;
+      }
+      
+      // Hash new password and update
+      return hashPassword(newPassword);
+    });
+  }).then(function(newPasswordHash) {
+    if (!newPasswordHash) return;
+    
+    return database.ref('usernames/' + currentUsername + '/passwordHash').set(newPasswordHash);
+  }).then(function() {
+    $('#changePasswordModal').addClass('hidden');
+    $('#currentPassword').val('');
+    $('#newPassword').val('');
+    $('#confirmPassword').val('');
+    showToast('Password changed successfully');
+  }).catch(function(err) {
+    console.error('Error changing password:', err);
+    showToast('Error changing password', 'error');
+  });
+});
+
 $('#closeShopModal, #cancelShopBtn').on('click', function() {
   $('#addShopModal').addClass('hidden');
   $('#shopNameInput').val('');
