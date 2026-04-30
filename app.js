@@ -1,11 +1,17 @@
-// Initialize PouchDB
-const db = new PouchDB('baki_tracker');
+// Firebase Configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBfmw0hAPDcIwXuFEbg9JFCaq30wTk0PrE",
+  authDomain: "bakitracker.firebaseapp.com",
+  databaseURL: "https://bakitracker-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "bakitracker",
+  storageBucket: "bakitracker.firebasestorage.app",
+  messagingSenderId: "47772272556",
+  appId: "1:47772272556:web:56d759e50cf998bd965c09"
+};
 
-// Supabase Configuration - DISABLED for local-only mode
-// Server sync feature moved to server-sync.js for future upgrade
-// const SUPABASE_URL = 'https://pkqejfscxowajrnfqwyo.supabase.co';
-// const SUPABASE_KEY = 'sb_publishable_LoM4ZPvd8OxaycU4S7J6Tg_2USRI9yg';
-// const SUPABASE_TABLE = 'baki_data';
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const database = firebase.database();
 
 // Global state
 let currentUsername = null;
@@ -65,12 +71,28 @@ $('#onboardingForm').on('submit', function(e) {
   const username = $('#username').val().trim();
   
   if (username) {
-    localStorage.setItem('baki_username', username);
-    currentUsername = username;
-    $('#onboarding').addClass('hidden');
-    $('#dashboard').removeClass('hidden');
-    $('#welcomeMessage').text('Welcome, ' + currentUsername + '!');
-    loadShops();
+    // Check if username already exists in Firebase
+    database.ref('usernames/' + username).once('value').then(function(snapshot) {
+      if (snapshot.exists()) {
+        showToast('Username already taken. Please choose another.', 'error');
+      } else {
+        // Register the username
+        database.ref('usernames/' + username).set(true).then(function() {
+          localStorage.setItem('baki_username', username);
+          currentUsername = username;
+          $('#onboarding').addClass('hidden');
+          $('#dashboard').removeClass('hidden');
+          $('#welcomeMessage').text('Welcome, ' + currentUsername + '!');
+          loadShops();
+        }).catch(function(err) {
+          console.error('Error registering username:', err);
+          showToast('Error registering username', 'error');
+        });
+      }
+    }).catch(function(err) {
+      console.error('Error checking username:', err);
+      showToast('Error checking username', 'error');
+    });
   }
 });
 
@@ -101,17 +123,15 @@ $('#addShopForm').on('submit', function(e) {
   const shopName = $('#shopNameInput').val().trim();
   
   if (shopName) {
+    const shopId = 'shop_' + Date.now();
     const shop = {
-      _id: 'shop_' + Date.now(),
-      entry_id: 'shop_' + Date.now(), // For Supabase UPSERT
       name: shopName,
       username: currentUsername,
       createdAt: new Date().toISOString(),
-      isSynced: false,
       isDeleted: false
     };
     
-    db.put(shop).then(function() {
+    database.ref('users/' + currentUsername + '/shops/' + shopId).set(shop).then(function() {
       $('#addShopModal').addClass('hidden');
       $('#shopNameInput').val('');
       loadShops();
@@ -125,15 +145,14 @@ $('#addShopForm').on('submit', function(e) {
 
 // Load shops
 function loadShops() {
-  db.allDocs({
-    include_docs: true,
-    startkey: 'shop_',
-    endkey: 'shop_\uffff'
-  }).then(function(result) {
-    const shops = result.rows.map(function(row) {
-      return row.doc;
-    }).filter(function(shop) {
-      return shop.username === currentUsername && !shop.isDeleted;
+  database.ref('users/' + currentUsername + '/shops').once('value').then(function(snapshot) {
+    const shops = [];
+    snapshot.forEach(function(childSnapshot) {
+      const shop = childSnapshot.val();
+      shop._id = childSnapshot.key;
+      if (!shop.isDeleted) {
+        shops.push(shop);
+      }
     });
     
     renderShops(shops);
@@ -211,28 +230,19 @@ function renderShops(shops) {
 
 // Soft delete shop and its transactions
 function softDeleteShop(shopId) {
-  db.get(shopId).then(function(shop) {
-    shop.isDeleted = true;
-    shop.isSynced = false;
-    return db.put(shop);
-  }).then(function() {
+  database.ref('users/' + currentUsername + '/shops/' + shopId + '/isDeleted').set(true).then(function() {
     // Soft delete all transactions for this shop
-    return db.allDocs({
-      include_docs: true,
-      startkey: 'txn_' + shopId,
-      endkey: 'txn_' + shopId + '\uffff'
+    return database.ref('users/' + currentUsername + '/transactions').once('value');
+  }).then(function(snapshot) {
+    const deletePromises = [];
+    snapshot.forEach(function(childSnapshot) {
+      const txn = childSnapshot.val();
+      if (txn.shopId === shopId) {
+        deletePromises.push(
+          database.ref('users/' + currentUsername + '/transactions/' + childSnapshot.key + '/isDeleted').set(true)
+        );
+      }
     });
-  }).then(function(result) {
-    const transactions = result.rows.map(function(row) {
-      return row.doc;
-    });
-    
-    const deletePromises = transactions.map(function(txn) {
-      txn.isDeleted = true;
-      txn.isSynced = false;
-      return db.put(txn);
-    });
-    
     return Promise.all(deletePromises);
   }).then(function() {
     loadShops();
@@ -245,20 +255,15 @@ function softDeleteShop(shopId) {
 
 // Get shop balance
 function getShopBalance(shopId) {
-  return db.allDocs({
-    include_docs: true,
-    startkey: 'txn_' + shopId,
-    endkey: 'txn_' + shopId + '\uffff'
-  }).then(function(result) {
-    const transactions = result.rows.map(function(row) {
-      return row.doc;
-    }).filter(function(txn) {
-      return !txn.isDeleted;
+  return database.ref('users/' + currentUsername + '/transactions').once('value').then(function(snapshot) {
+    let balance = 0;
+    snapshot.forEach(function(childSnapshot) {
+      const txn = childSnapshot.val();
+      if (txn.shopId === shopId && !txn.isDeleted) {
+        balance = txn.type === 'due' ? balance + txn.amount : balance - txn.amount;
+      }
     });
-    
-    return transactions.reduce(function(total, txn) {
-      return txn.type === 'due' ? total + txn.amount : total - txn.amount;
-    }, 0);
+    return balance;
   });
 }
 
@@ -305,16 +310,17 @@ $('#backBtn').on('click', function() {
 
 // Load transactions
 function loadTransactions(shopId) {
-  db.allDocs({
-    include_docs: true,
-    startkey: 'txn_' + shopId,
-    endkey: 'txn_' + shopId + '\uffff'
-  }).then(function(result) {
-    const transactions = result.rows.map(function(row) {
-      return row.doc;
-    }).filter(function(txn) {
-      return !txn.isDeleted;
-    }).sort(function(a, b) {
+  database.ref('users/' + currentUsername + '/transactions').once('value').then(function(snapshot) {
+    const transactions = [];
+    snapshot.forEach(function(childSnapshot) {
+      const txn = childSnapshot.val();
+      txn._id = childSnapshot.key;
+      if (txn.shopId === shopId && !txn.isDeleted) {
+        transactions.push(txn);
+      }
+    });
+    
+    transactions.sort(function(a, b) {
       return new Date(b.timestamp) - new Date(a.timestamp);
     });
     
@@ -386,9 +392,7 @@ function renderTransactions(transactions) {
   $('.delete-txn').on('click', function() {
     const txnId = $(this).data('id');
     if (confirm('Are you sure you want to delete this transaction?')) {
-      db.get(txnId).then(function(doc) {
-        return db.remove(doc);
-      }).then(function() {
+      database.ref('users/' + currentUsername + '/transactions/' + txnId + '/isDeleted').set(true).then(function() {
         loadTransactions(currentShopId);
       }).catch(function(err) {
         console.error('Error deleting transaction:', err);
@@ -434,20 +438,18 @@ $('#addTransactionForm').on('submit', function(e) {
   const note = $('#note').val().trim();
   
   if (amount > 0) {
+    const txnId = 'txn_' + currentShopId + '_' + Date.now();
     const transaction = {
-      _id: 'txn_' + currentShopId + '_' + Date.now(),
-      entry_id: 'txn_' + currentShopId + '_' + Date.now(), // For Supabase UPSERT
       shopId: currentShopId,
       shopName: $('#shopName').text(),
       amount: amount,
       type: transactionType,
       note: note || undefined,
       timestamp: new Date().toISOString(),
-      isSynced: false,
       isDeleted: false
     };
     
-    db.put(transaction).then(function() {
+    database.ref('users/' + currentUsername + '/transactions/' + txnId).set(transaction).then(function() {
       $('#addTransactionModal').addClass('hidden');
       $('#amount').val('');
       $('#note').val('');
@@ -488,124 +490,3 @@ setInterval(sendTestNotification, 2 * 60 * 1000);
 // Send one immediately on load
 sendTestNotification();
 
-// Sync functionality with Supabase - DISABLED for local-only mode
-// Moved to server-sync.js for future upgrade
-/*
-function checkAndSync() {
-  const lastSync = localStorage.getItem('lastSyncTimestamp');
-  
-  if (lastSync) {
-    const lastSyncDate = new Date(lastSync);
-    const now = new Date();
-    const nextMidnight = new Date(lastSyncDate);
-    nextMidnight.setDate(nextMidnight.getDate() + 1);
-    nextMidnight.setHours(0, 0, 0, 0);
-    
-    if (now >= nextMidnight) {
-      syncToCloud();
-    }
-  } else {
-    syncToCloud();
-  }
-}
-
-function syncToCloud() {
-  db.allDocs({
-    include_docs: true
-  }).then(function(result) {
-    const unsyncedDocs = result.rows
-      .map(function(row) {
-        return row.doc;
-      })
-      .filter(function(doc) {
-        return doc.isSynced === false;
-      });
-    
-    if (unsyncedDocs.length === 0) {
-      console.log('No unsynced data to push');
-      return;
-    }
-    
-    // Prepare payload for Supabase UPSERT
-    const payload = {
-      username: currentUsername,
-      records: unsyncedDocs.map(function(doc) {
-        return {
-          entry_id: doc.entry_id || doc._id,
-          _id: doc._id,
-          name: doc.name,
-          shopId: doc.shopId,
-          shopName: doc.shopName,
-          amount: doc.amount,
-          type: doc.type,
-          note: doc.note,
-          timestamp: doc.timestamp,
-          username: doc.username,
-          createdAt: doc.createdAt,
-          isDeleted: doc.isDeleted
-        };
-      })
-    };
-    
-    // Send to Supabase
-    fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_KEY,
-        'Authorization': 'Bearer ' + SUPABASE_KEY,
-        'Prefer': 'resolution=ignore-duplicates'
-      },
-      body: JSON.stringify(payload.records)
-    }).then(function(response) {
-      if (!response.ok) {
-        throw new Error('Sync failed');
-      }
-      return response.json();
-    }).then(function(data) {
-      console.log('Sync successful:', data);
-      
-      // Mark all as synced
-      const syncPromises = unsyncedDocs.map(function(doc) {
-        doc.isSynced = true;
-        return db.put(doc);
-      });
-      
-      return Promise.all(syncPromises);
-    }).then(function() {
-      // Update last sync timestamp
-      localStorage.setItem('lastSyncTimestamp', new Date().toISOString());
-      
-      // Purge deleted docs from PouchDB after successful sync
-      const deletedDocs = unsyncedDocs.filter(function(doc) {
-        return doc.isDeleted === true;
-      });
-      
-      if (deletedDocs.length > 0) {
-        const purgePromises = deletedDocs.map(function(doc) {
-          return db.remove(doc);
-        });
-        return Promise.all(purgePromises);
-      }
-    }).then(function() {
-      showToast('Data synced successfully');
-      if (deletedDocs && deletedDocs.length > 0) {
-        console.log('Purged ' + deletedDocs.length + ' deleted documents');
-      }
-    }).catch(function(err) {
-      console.error('Error syncing data:', err);
-      showToast('Sync failed. Will retry later.', 'error');
-    });
-  }).catch(function(err) {
-    console.error('Error loading unsynced docs:', err);
-  });
-}
-
-// Request notification permission
-if ('Notification' in window && Notification.permission === 'default') {
-  Notification.requestPermission();
-}
-
-// Set up periodic sync check (every 5 minutes)
-setInterval(checkAndSync, 5 * 60 * 1000);
-*/
