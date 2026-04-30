@@ -23,6 +23,11 @@ async function hashPassword(password) {
   return hashHex;
 }
 
+// Sanitize username for Firebase paths (remove invalid characters: . # $ [ ])
+function sanitizeUsername(username) {
+  return username.replace(/[.#$\[\]]/g, '_');
+}
+
 // Global state
 let currentUsername = null;
 let currentShopId = null;
@@ -83,8 +88,9 @@ $('#onboardingForm').on('submit', async function(e) {
   const password = $('#password').val();
   
   if (username && password) {
+    const sanitizedUsername = sanitizeUsername(username);
     // Check if username already exists in Firebase
-    database.ref('usernames/' + username).once('value').then(function(snapshot) {
+    database.ref('usernames/' + sanitizedUsername).once('value').then(function(snapshot) {
       if (snapshot.exists()) {
         showToast('Username already taken. Please choose another.', 'error');
       } else {
@@ -96,11 +102,12 @@ $('#onboardingForm').on('submit', async function(e) {
       
       // Register the username with password hash
       const userData = {
+        username: username, // Store original username for display
         passwordHash: passwordHash,
         createdAt: new Date().toISOString()
       };
       
-      return database.ref('usernames/' + username).set(userData);
+      return database.ref('usernames/' + sanitizedUsername).set(userData);
     }).then(function() {
       localStorage.setItem('baki_username', username);
       currentUsername = username;
@@ -128,8 +135,9 @@ $('#loginForm').on('submit', async function(e) {
   const password = $('#loginPassword').val();
   
   if (username && password) {
+    const sanitizedUsername = sanitizeUsername(username);
     // Check if username exists
-    database.ref('usernames/' + username).once('value').then(function(snapshot) {
+    database.ref('usernames/' + sanitizedUsername).once('value').then(function(snapshot) {
       if (!snapshot.exists()) {
         showToast('Username not found. Please create an account.', 'error');
         return null;
@@ -212,7 +220,8 @@ $('#changePasswordForm').on('submit', async function(e) {
   }
   
   // Verify current password
-  database.ref('usernames/' + currentUsername).once('value').then(function(snapshot) {
+  const sanitizedUsername = sanitizeUsername(currentUsername);
+  database.ref('usernames/' + sanitizedUsername).once('value').then(function(snapshot) {
     if (!snapshot.exists()) {
       showToast('User not found', 'error');
       return null;
@@ -231,7 +240,7 @@ $('#changePasswordForm').on('submit', async function(e) {
   }).then(function(newPasswordHash) {
     if (!newPasswordHash) return;
     
-    return database.ref('usernames/' + currentUsername + '/passwordHash').set(newPasswordHash);
+    return database.ref('usernames/' + sanitizedUsername + '/passwordHash').set(newPasswordHash);
   }).then(function() {
     $('#changePasswordModal').addClass('hidden');
     $('#currentPassword').val('');
@@ -619,8 +628,8 @@ $('#addTransactionForm').on('submit', function(e) {
 
 // Send test notification every 2 minutes (120000 ms)
 // Comment out the line below to stop test notifications
-setInterval(sendTestNotification, 2 * 60 * 1000);
+// setInterval(sendTestNotification, 2 * 60 * 1000);
 
 // Send one immediately on load
-sendTestNotification();
+// sendTestNotification();
 
