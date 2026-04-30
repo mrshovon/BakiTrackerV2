@@ -13,6 +13,16 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const database = firebase.database();
 
+// Password hashing function using Web Crypto API
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hash));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
+}
+
 // Global state
 let currentUsername = null;
 let currentShopId = null;
@@ -28,7 +38,8 @@ $(document).ready(function() {
     $('#welcomeMessage').text('Welcome, ' + currentUsername + '!');
     loadShops();
   } else {
-    $('#onboarding').removeClass('hidden');
+    // Show login screen by default
+    $('#login').removeClass('hidden');
   }
   
   // Sync disabled - local-only mode
@@ -66,32 +77,40 @@ function showToast(message, type = 'success') {
 }
 
 // Onboarding form submission
-$('#onboardingForm').on('submit', function(e) {
+$('#onboardingForm').on('submit', async function(e) {
   e.preventDefault();
   const username = $('#username').val().trim();
+  const password = $('#password').val();
   
-  if (username) {
+  if (username && password) {
     // Check if username already exists in Firebase
     database.ref('usernames/' + username).once('value').then(function(snapshot) {
       if (snapshot.exists()) {
         showToast('Username already taken. Please choose another.', 'error');
       } else {
-        // Register the username
-        database.ref('usernames/' + username).set(true).then(function() {
-          localStorage.setItem('baki_username', username);
-          currentUsername = username;
-          $('#onboarding').addClass('hidden');
-          $('#dashboard').removeClass('hidden');
-          $('#welcomeMessage').text('Welcome, ' + currentUsername + '!');
-          loadShops();
-        }).catch(function(err) {
-          console.error('Error registering username:', err);
-          showToast('Error registering username', 'error');
-        });
+        // Hash the password
+        return hashPassword(password);
       }
+    }).then(function(passwordHash) {
+      if (!passwordHash) return;
+      
+      // Register the username with password hash
+      const userData = {
+        passwordHash: passwordHash,
+        createdAt: new Date().toISOString()
+      };
+      
+      return database.ref('usernames/' + username).set(userData);
+    }).then(function() {
+      localStorage.setItem('baki_username', username);
+      currentUsername = username;
+      $('#onboarding').addClass('hidden');
+      $('#dashboard').removeClass('hidden');
+      $('#welcomeMessage').text('Welcome, ' + currentUsername + '!');
+      loadShops();
     }).catch(function(err) {
-      console.error('Error checking username:', err);
-      showToast('Error checking username', 'error');
+      console.error('Error registering username:', err);
+      showToast('Error registering username', 'error');
     });
   }
 });
@@ -100,6 +119,56 @@ $('#onboardingForm').on('submit', function(e) {
 $('#logoutBtn').on('click', function() {
   localStorage.removeItem('baki_username');
   location.reload();
+});
+
+// Login form submission
+$('#loginForm').on('submit', async function(e) {
+  e.preventDefault();
+  const username = $('#loginUsername').val().trim();
+  const password = $('#loginPassword').val();
+  
+  if (username && password) {
+    // Check if username exists
+    database.ref('usernames/' + username).once('value').then(function(snapshot) {
+      if (!snapshot.exists()) {
+        showToast('Username not found. Please create an account.', 'error');
+        return null;
+      }
+      
+      const userData = snapshot.val();
+      // Hash the entered password
+      return hashPassword(password).then(function(passwordHash) {
+        if (passwordHash === userData.passwordHash) {
+          // Password matches
+          localStorage.setItem('baki_username', username);
+          currentUsername = username;
+          $('#login').addClass('hidden');
+          $('#dashboard').removeClass('hidden');
+          $('#welcomeMessage').text('Welcome, ' + currentUsername + '!');
+          loadShops();
+          showToast('Login successful');
+        } else {
+          showToast('Incorrect password', 'error');
+        }
+      });
+    }).catch(function(err) {
+      console.error('Error during login:', err);
+      showToast('Login failed', 'error');
+    });
+  }
+});
+
+// Toggle between login and register forms
+$('#showLoginBtn').on('click', function(e) {
+  e.preventDefault();
+  $('#onboarding').addClass('hidden');
+  $('#login').removeClass('hidden');
+});
+
+$('#showRegisterBtn').on('click', function(e) {
+  e.preventDefault();
+  $('#login').addClass('hidden');
+  $('#onboarding').removeClass('hidden');
 });
 
 // Manual sync button - DISABLED for local-only mode
